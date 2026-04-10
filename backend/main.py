@@ -12,6 +12,12 @@ from tensorflow.keras.applications.resnet50 import preprocess_input
 
 MODEL_PATH = Path(__file__).with_name("resnet50.keras")
 IMAGE_SIZE = (224, 224)
+ALZHEIMER_CLASSES = [
+    "Non_Demented",
+    "Very_Mild_Demented",
+    "Mild_Demented",
+    "Moderate_Demented",
+]
 
 
 app = FastAPI(title="Alzheimer Detection API", version="1.0.0")
@@ -41,6 +47,27 @@ def prepare_image(image_bytes: bytes) -> np.ndarray:
     return preprocess_input(array)
 
 
+def infer_output_size(output_shape: tuple) -> int | None:
+    if not output_shape:
+        return None
+
+    last = output_shape[-1]
+    if isinstance(last, int):
+        return last
+
+    return None
+
+
+def to_probabilities(output: np.ndarray) -> np.ndarray:
+    # Convert logits to probabilities when needed.
+    if np.any(output < 0) or not np.isclose(float(np.sum(output)), 1.0, atol=1e-2):
+        shifted = output - np.max(output)
+        exp_values = np.exp(shifted)
+        return exp_values / np.sum(exp_values)
+
+    return output
+
+
 def format_prediction(prediction: np.ndarray) -> dict:
     output = np.asarray(prediction)
 
@@ -54,24 +81,28 @@ def format_prediction(prediction: np.ndarray) -> dict:
 
     if output.size == 1:
         score = float(output[0])
-        label = "demented" if score >= 0.5 else "not_demented"
-        return {"label": label, "score": score, "raw": [score]}
+        category = "Demented" if score >= 0.5 else "Non_Demented"
+        return {"category": category, "confidence": score}
 
-    class_names = [
-        "Non_Demented",
-        "Very_Mild_Demented",
-        "Mild_Demented",
-        "Moderate_Demented",
-    ]
-    index = int(np.argmax(output))
-    confidence = float(output[index])
-    label = class_names[index] if index < len(class_names) else f"class_{index}"
+    if output.size != len(ALZHEIMER_CLASSES):
+        raise ValueError(
+            "Incompatible model output. Expected 4 Alzheimer classes, "
+            f"but got {output.size}."
+        )
+
+    probabilities = to_probabilities(output.astype(np.float64))
+    index = int(np.argmax(probabilities))
+    confidence = float(probabilities[index])
+    category = ALZHEIMER_CLASSES[index]
 
     return {
-        "label": label,
+        "category": category,
         "class_index": index,
         "confidence": confidence,
-        "raw": [float(value) for value in output.tolist()],
+        "class_probabilities": {
+            ALZHEIMER_CLASSES[i]: float(probabilities[i])
+            for i in range(len(ALZHEIMER_CLASSES))
+        },
     }
 
 
@@ -87,7 +118,14 @@ def root() -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "model_loaded": MODEL_PATH.exists()}
+    model = get_model()
+    output_size = infer_output_size(model.output_shape)
+    return {
+        "status": "ok",
+        "model_loaded": MODEL_PATH.exists(),
+        "model_output_size": output_size,
+        "alzheimers_compatible": output_size in (1, len(ALZHEIMER_CLASSES)),
+    }
 
 
 @app.post("/predict")
@@ -103,7 +141,18 @@ async def predict(file: UploadFile = File(...)) -> dict:
     prepared = prepare_image(image_bytes)
     prediction = model.predict(prepared, verbose=0)
 
+    try:
+        formatted = format_prediction(prediction)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(exc),
+                "hint": "Load your Alzheimer-trained model with 4 output classes (or binary output).",
+            },
+        ) from exc
+
     return {
         "filename": file.filename,
-        "prediction": format_prediction(prediction),
+        "prediction": formatted,
     }
