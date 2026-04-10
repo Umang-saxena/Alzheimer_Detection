@@ -1,65 +1,111 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
 
 export default function Home() {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [result, setResult] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(false);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (selected) {
+      setFile(selected);
+      setPreview(URL.createObjectURL(selected));
+      setResult("");
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!file) return alert("Upload MRI image");
+
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("http://127.0.0.1:5000/predict", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      setResult(data.prediction || "No result");
+    } catch {
+      setResult("API Error");
+    }
+
+    setLoading(false);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-gray-800 text-white flex flex-col">
+
+      {/* Header */}
+      <header className="flex justify-between items-center px-10 py-6">
+        <h1 className="text-xl font-bold tracking-wide">
+          🧠 Alzheimer AI
+        </h1>
+        <p className="text-gray-400 text-sm">
+          MRI Classification System
+        </p>
+      </header>
+
+      {/* Main Content */}
+      <div className="flex flex-1 items-center justify-center gap-16 px-10">
+
+        {/* Left Side */}
+        <div className="max-w-md">
+          <h2 className="text-4xl font-bold leading-tight">
+            Detect Alzheimer’s <br /> using AI
+          </h2>
+          <p className="text-gray-400 mt-4">
+            Upload MRI scans and get instant classification powered by EfficientNet.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+          {/* Upload */}
+          <label className="mt-6 block cursor-pointer border border-gray-600 rounded-xl p-6 text-center hover:border-indigo-400 transition">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <p className="text-gray-400">Click to upload MRI image</p>
+          </label>
+
+          {/* Button */}
+          <button
+            onClick={handleSubmit}
+            className="mt-5 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl hover:scale-105 transition transform"
           >
-            Documentation
-          </a>
+            {loading ? "Analyzing..." : "Run Detection"}
+          </button>
+
+          {/* Result */}
+          {result && (
+            <div className="mt-6">
+              <p className="text-gray-400 text-sm">Prediction</p>
+              <h3 className="text-2xl font-bold text-green-400">
+                {result}
+              </h3>
+            </div>
+          )}
         </div>
-      </main>
+
+        {/* Right Side Preview */}
+        {preview && (
+          <div className="w-[350px] h-[350px]">
+            <img
+              src={preview}
+              alt="preview"
+              className="rounded-2xl w-full h-full object-cover border border-gray-700 shadow-xl"
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
