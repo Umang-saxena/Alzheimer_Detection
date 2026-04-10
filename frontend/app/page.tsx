@@ -2,10 +2,30 @@
 
 import { useState } from "react";
 
+type PredictionResponse = {
+  category?: string;
+  confidence?: number;
+};
+
+type ApiSuccess = {
+  filename: string;
+  prediction?: PredictionResponse;
+};
+
+type ApiError = {
+  detail?:
+    | string
+    | {
+        message?: string;
+        hint?: string;
+      };
+};
+
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<string>("");
+  const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -14,6 +34,7 @@ export default function Home() {
       setFile(selected);
       setPreview(URL.createObjectURL(selected));
       setResult("");
+      setError("");
     }
   };
 
@@ -21,20 +42,45 @@ export default function Home() {
     if (!file) return alert("Upload MRI image");
 
     setLoading(true);
+    setError("");
+    setResult("");
 
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://127.0.0.1:5000/predict", {
+      const res = await fetch("http://127.0.0.1:8000/predict", {
         method: "POST",
         body: formData,
       });
 
-      const data = await res.json();
-      setResult(data.prediction || "No result");
+      const data = (await res.json()) as ApiSuccess | ApiError;
+
+      if (!res.ok) {
+        const errorData = data as ApiError;
+        if (typeof errorData.detail === "string") {
+          setError(errorData.detail);
+        } else {
+          const message = errorData.detail?.message ?? "Detection failed";
+          const hint = errorData.detail?.hint ? ` ${errorData.detail.hint}` : "";
+          setError(`${message}${hint}`);
+        }
+        return;
+      }
+
+      const prediction = (data as ApiSuccess).prediction;
+      if (!prediction?.category) {
+        setError("No category returned by API");
+        return;
+      }
+
+      const confidenceText =
+        typeof prediction.confidence === "number"
+          ? ` (${(prediction.confidence * 100).toFixed(2)}%)`
+          : "";
+      setResult(`${prediction.category}${confidenceText}`);
     } catch {
-      setResult("API Error");
+      setError("API Error. Make sure backend is running on http://127.0.0.1:8000");
     }
 
     setLoading(false);
@@ -91,6 +137,12 @@ export default function Home() {
               <h3 className="text-2xl font-bold text-green-400">
                 {result}
               </h3>
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-6 rounded-xl border border-red-500/50 bg-red-500/10 p-4">
+              <p className="text-sm text-red-300">{error}</p>
             </div>
           )}
         </div>
